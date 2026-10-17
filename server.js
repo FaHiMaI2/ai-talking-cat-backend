@@ -1,4 +1,3 @@
-
 const express = require("express");
 const cors = require("cors");
 const { GoogleGenAI } = require("@google/genai");
@@ -12,11 +11,21 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY
 });
 
+// JSON রেসপন্স পাঠাবে যেন অ্যাপে আর এরর না আসে
 app.get("/", (req, res) => {
-  res.send("AI Talking Cat Backend is running!");
+  res.json({ status: "ok", message: "AI Talking Cat Backend is running!" });
 });
 
-app.post("/api/chat", async (req, res) => {
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+// অ্যাপ /chat বা /api/chat যেটাই কল করুক, দুটোতেই কাজ করবে
+app.post(["/chat", "/api/chat"], async (req, res) => {
   try {
     const message = req.body.message;
 
