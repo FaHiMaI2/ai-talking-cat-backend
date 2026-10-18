@@ -32,7 +32,7 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
     }
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.8-flash",
       contents: message,
       config: {
         systemInstruction: "You are a cute, friendly talking cat. Reply in a playful, charming, and loving cat persona with meows and emojis.",
