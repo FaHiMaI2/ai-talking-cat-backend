@@ -12,7 +12,7 @@ const ai = new GoogleGenAI({ apiKey: apiKey });
 
 // রুট পাথ
 app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "Cat backend is running" });
+  res.json({ status: "ok", message: "Cat backend running" });
 });
 
 // চ্যাট রাউট
@@ -26,16 +26,16 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
 
     // API Key না থাকলে স্পষ্ট এরর দেবে
     if (!apiKey) {
-      return res.status(500).json({ 
-        error: "Server Error: GEMINI_API_KEY is not set in Environment Variables!" 
+      return res.status(500).json({
+        error: "Server Error: GEMINI_API_KEY is not configured",
       });
     }
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.5-flash",
       contents: message,
       config: {
-        systemInstruction: "You are a cute, friendly talking cat. Respond in a cute cat persona.",
+        systemInstruction: "You are a cute, friendly talking cat. Reply in a playful, charming, and loving cat persona with meows and emojis.",
       },
     });
 
@@ -44,13 +44,11 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
     });
   } catch (error) {
     console.error("Chat error:", error);
-    res.status(500).json({
-      error: error.message || "Failed to get response from AI",
-    });
+    res.status(500).json({ error: "Couldn't reply" });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => {
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
