@@ -31,16 +31,44 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
       });
     }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents: message,
-      config: {
-        systemInstruction: "You are a cute, friendly talking cat. Reply in a playful, charming, and loving cat persona with meows and emojis.",
-      },
-    });
+    // ব্যাকআপ সহ মডেল তালিকা (একটি ব্যস্ত থাকলে স্বয়ংক্রিয়ভাবে পরেরটি ব্যবহার হবে)
+    const modelsToTry = [
+      "gemini-3.8-flash",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash"
+    ];
+
+    let replyText = null;
+    let lastError = null;
+
+    for (const model of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: message,
+          config: {
+            systemInstruction:
+              "You are a cute, friendly talking cat. Reply in a playful, charming, and loving cat persona with meows and emojis.",
+          },
+        });
+
+        if (response && response.text) {
+          replyText = response.text;
+          break; // সফল হলে লুপ শেষ করে উত্তর পাঠিয়ে দেবে
+        }
+      } catch (err) {
+        console.warn(`Model ${model} failed, trying next fallback model... Error:`, err.message);
+        lastError = err;
+      }
+    }
+
+    if (!replyText) {
+      throw lastError || new Error("All AI models failed to generate response");
+    }
 
     res.json({
-      reply: response.text,
+      reply: replyText,
     });
   } catch (error) {
     console.error("Chat error:", error);
