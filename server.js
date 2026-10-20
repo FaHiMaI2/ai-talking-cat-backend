@@ -7,7 +7,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const apiKey = process.env.GEMINI_API_KEY;
+// API Key ট্রিম করা (যাতে কোনো অনাকাঙ্ক্ষিত স্পেস বা ফাঁকা জায়গা না থাকে)
+const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : "";
 const ai = new GoogleGenAI({ apiKey: apiKey });
 
 // রুট পাথ
@@ -24,26 +25,27 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
       return res.status(400).json({ error: "Message is required" });
     }
 
-    // API Key না থাকলে স্পষ্ট এরর দেবে
     if (!apiKey) {
       return res.status(500).json({
         error: "Server Error: GEMINI_API_KEY is not configured",
       });
     }
 
-    // ব্যাকআপ সহ মডেল তালিকা (একটি ব্যস্ত থাকলে স্বয়ংক্রিয়ভাবে পরেরটি ব্যবহার হবে)
+    // Google-এর বর্তমান সক্রিয় এবং ব্যাকআপ মডেল তালিকা
     const modelsToTry = [
-      "gemini-3.8-flash",
+      "gemini-flash-latest",
+      "gemini-3.5-flash",
       "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash"
+      "gemini-2.5-flash-lite",
+      "gemini-2.0-flash"
     ];
 
     let replyText = null;
-    let lastError = null;
+    let lastErrorMessage = "";
 
     for (const model of modelsToTry) {
       try {
+        console.log(`Trying model: ${model}`);
         const response = await ai.models.generateContent({
           model: model,
           contents: message,
@@ -55,16 +57,17 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
 
         if (response && response.text) {
           replyText = response.text;
-          break; // সফল হলে লুপ শেষ করে উত্তর পাঠিয়ে দেবে
+          console.log(`Success with model: ${model}`);
+          break; // সফল হলে লুপ থামিয়ে দেবে
         }
       } catch (err) {
-        console.warn(`Model ${model} failed, trying next fallback model... Error:`, err.message);
-        lastError = err;
+        console.warn(`Model ${model} failed: ${err.message}`);
+        lastErrorMessage = err.message;
       }
     }
 
     if (!replyText) {
-      throw lastError || new Error("All AI models failed to generate response");
+      throw new Error(lastErrorMessage || "All models failed");
     }
 
     res.json({
@@ -72,7 +75,8 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
     });
   } catch (error) {
     console.error("Chat error:", error);
-    res.status(500).json({ error: "Couldn't reply" });
+    // সঠিক এরর মেসেজটি অ্যাপে পাঠানো হবে
+    res.status(500).json({ error: error.message || "Couldn't reply" });
   }
 });
 
