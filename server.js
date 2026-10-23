@@ -6,10 +6,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// API Key (যদি Render Environment-এ থাকে)
 const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : "";
 
-// রুট পাথ
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
@@ -18,7 +16,6 @@ app.get("/", (req, res) => {
   });
 });
 
-// চ্যাট রাউট
 app.post(["/chat", "/api/chat"], async (req, res) => {
   try {
     const message = req.body.message;
@@ -31,7 +28,14 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
 
     let replyText = null;
 
-    // ১. প্রথমে যদি GEMINI_API_KEY থাকে, তবে Gemini API দিয়ে চেষ্টা করবে
+    // কঠোর নির্দেশনা: কোনো মিথ্যা বা মনগড়া উত্তর দেওয়া যাবে না
+    const strictSystemPrompt = 
+      "You are a smart talking cat named Talking Cat. " +
+      "CRITICAL RULE: You MUST provide 100% factually accurate, truthful real-world answers in Bengali. " +
+      "Do NOT invent, hallucinate, or make up fake facts (e.g., National bird of Bangladesh is Doyel / Oriental Magpie-Robin). " +
+      "Explain the exact correct factual answer in sweet Bengali, keeping a cute friendly cat tone with 1-2 meows or cat emojis. Keep it short and helpful.";
+
+    // ১. Gemini API দিয়ে চেষ্টা (Temperature 0.2 রাখা হয়েছে যেন ভুল তথ্য না বানায়)
     if (apiKey) {
       const geminiModels = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
       for (const model of geminiModels) {
@@ -44,7 +48,10 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
             body: JSON.stringify({
               contents: [{ parts: [{ text: message }] }],
               systemInstruction: {
-                parts: [{ text: "You are a cute, intelligent talking cat named Talking Cat. Always reply in clear Bengali with sweet cat persona, meows, and emojis. Keep answer concise and accurate." }]
+                parts: [{ text: strictSystemPrompt }]
+              },
+              generationConfig: {
+                temperature: 0.2 // কম ক্রিয়েটিভিটি = বেশি নির্ভুল বাস্তব তথ্য
               }
             })
           });
@@ -54,8 +61,6 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
             replyText = data.candidates[0].content.parts[0].text;
             console.log("Gemini API success!");
             break;
-          } else if (data.error) {
-            console.warn(`Gemini ${model} error:`, data.error.message);
           }
         } catch (err) {
           console.warn(`Gemini ${model} failed:`, err.message);
@@ -63,12 +68,13 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
       }
     }
 
-    // ২. যদি Gemini Key না থাকে বা কাজ না করে, অটোমেটিক ব্যাকআপ AI ইঞ্জিন ব্যবহার হবে
+    // ২. ব্যাকআপ ইঞ্জিন (OpenAI মডেল সহ নির্ভুল উত্তরের জন্য)
     if (!replyText) {
-      console.log("Gemini পাওয়া যায়নি বা কাজ করেনি, ব্যাকআপ AI ইঞ্জিন দিয়ে উত্তর তৈরি করা হচ্ছে...");
+      console.log("Gemini ছাড়া ব্যাকআপ AI (OpenAI Model) ব্যবহার করা হচ্ছে...");
       try {
-        const promptText = `You are Talking Cat, a smart and cute talking cat. Answer factually and accurately in sweet Bengali with meow emojis: ${message}`;
-        const fallbackRes = await fetch(`https://text.pollinations.ai/${encodeURIComponent(promptText)}`);
+        const fullPrompt = `${strictSystemPrompt}\n\nUser Question: ${message}\nAnswer in accurate Bengali:`;
+        const fallbackUrl = `https://text.pollinations.ai/${encodeURIComponent(fullPrompt)}?model=openai`;
+        const fallbackRes = await fetch(fallbackUrl);
         if (fallbackRes.ok) {
           replyText = await fallbackRes.text();
           console.log("Backup AI success!");
@@ -78,23 +84,18 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
       }
     }
 
-    // ৩. শেষ নিরাপত্তা ব্যাকআপ
     if (!replyText) {
-      replyText = "মিয়াওঁ! বাংলাদেশের রাজধানী ঢাকা! 🐱";
+      replyText = "মিয়াওঁ! প্রশ্নটির সঠিক তথ্য খুঁজতে পারছি না, আবার জিজ্ঞাসা করো!";
     }
 
-    // মার্কডাউন বা অপ্রয়োজনীয় চিহ্ন পরিষ্কার করা
     replyText = replyText.replace(/[*#_~`]/g, "").trim();
 
-    // অ্যাপে সফল রেসপন্স পাঠানো
-    res.json({
-      reply: replyText
-    });
+    res.json({ reply: replyText });
 
   } catch (error) {
     console.error("Chat Server Error:", error);
     res.json({
-      reply: "মিয়াওঁ! আমি তোমার কথা শুনেছি, কিন্তু সংযোগে একটু সমস্যা হয়েছে। আবার বলো তো!"
+      reply: "মিয়াওঁ! একটু সমস্যা হয়েছে, আবার প্রশ্নটি করো তো!"
     });
   }
 });
