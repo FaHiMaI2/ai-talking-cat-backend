@@ -1,18 +1,15 @@
 const express = require("express");
 const cors = require("cors");
+const { GoogleGenAI } = require("@google/genai");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// Render-এ যে নামেই API Key দেওয়া থাকুক না কেন, তা স্বয়ংক্রিয়ভাবে ধরে নেবে
-const apiKey = (
-  process.env.GEMINI_API_KEY || 
-  process.env.API_KEY || 
-  process.env.GEMINI_KEY || 
-  ""
-).trim();
+// API Key নেওয়া
+const apiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY || "").trim();
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 app.get("/", (req, res) => {
   res.json({
@@ -34,74 +31,75 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
 
     let replyText = null;
 
-    // ১. সাধারণ জ্ঞান অটো-প্রোটেকশন (যেকোনো বাংলা বানানে ১০০% সঠিক উত্তর দেবে)
+    // ১. সাধারণ জ্ঞান অটো-প্রোটেকশন (পাখি/পাখী যেকোনো বানানে ১০০% কাজ করবে)
     const normalized = message.normalize("NFC");
 
-    if (/পাখি|bird/i.test(normalized)) {
+    if (/পাখ/i.test(normalized)) {
       replyText = "বাংলাদেশের জাতীয় পাখি হলো দোয়েল! 🐱🐾";
-    } else if (/ফুল|flower/i.test(normalized)) {
+    } else if (/ফুল/i.test(normalized)) {
       replyText = "বাংলাদেশের জাতীয় ফুল হলো সাদা শাপলা! 🐱🌸";
-    } else if (/ফল|fruit/i.test(normalized)) {
+    } else if (/ফল/i.test(normalized)) {
       replyText = "বাংলাদেশের জাতীয় ফল হলো কাঁঠাল! 🐱🍈";
-    } else if (/পশু|প্রাণী|বাঘ|tiger/i.test(normalized)) {
+    } else if (/পশু|বাঘ|প্রাণী/i.test(normalized)) {
       replyText = "বাংলাদেশের জাতীয় পশু হলো রয়েল বেঙ্গল টাইগার! 🐱🐯";
-    } else if (/মাছ|fish|ইলিশ/i.test(normalized)) {
+    } else if (/মাছ|ইলিশ/i.test(normalized)) {
       replyText = "বাংলাদেশের জাতীয় মাছ হলো ইলিশ! 🐱🐟";
-    } else if (/রাজধানী|capital/i.test(normalized)) {
+    } else if (/রাজধান/i.test(normalized)) {
       replyText = "বাংলাদেশের রাজধানী হলো ঢাকা! 🐱🏛️";
-    } else if (/কবি|poet/i.test(normalized)) {
+    } else if (/কবি/i.test(normalized)) {
       replyText = "বাংলাদেশের জাতীয় কবি হলেন কাজী নজরুল ইসলাম! 🐱📜";
     }
 
-    // ২. যদি উপরের সাধারণ জ্ঞান ছাড়া অন্য কোনো প্রশ্ন হয়, তবে Gemini দিয়ে উত্তর খুঁজবে
-    if (!replyText && apiKey) {
-      const models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
-      
-      const strictPrompt = 
-        "নির্দেশনা: তুমি Talking Cat নামের একটি বুদ্ধিমান বিড়াল। " +
-        "১০০% বাস্তব ও নির্ভুল সঠিক তথ্য দেবে। মিষ্টি বিড়ালের কণ্ঠে বাংলায় ১-২টি মিঁয়াও ইমোজি সহ সংক্ষেপে সঠিক উত্তর দাও।\n\n" +
-        "প্রশ্ন: " + message;
+    // ২. গুগলের বর্তমান সক্রিয় মডেলসমূহ দিয়ে AI কল
+    if (!replyText && ai) {
+      const modelsToTry = [
+        "gemini-3.8-flash",
+        "gemini-2.5-flash",
+        "gemini-flash-latest"
+      ];
 
-      for (const model of models) {
+      for (const model of modelsToTry) {
         try {
-          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-          const geminiRes = await fetch(geminiUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: strictPrompt }] }]
-            })
+          console.log(`Trying model: ${model}`);
+          const response = await ai.models.generateContent({
+            model: model,
+            contents: message,
+            config: {
+              systemInstruction:
+                "You are Talking Cat, a smart, cute talking cat. Answer factually accurate real-world truths in natural sweet Bengali with meows and emojis. Keep answers brief and helpful.",
+            },
           });
 
-          const data = await geminiRes.json();
-          if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
-            replyText = data.candidates[0].content.parts[0].text;
+          if (response && response.text) {
+            replyText = response.text;
+            console.log(`Success with: ${model}`);
             break;
           }
-        } catch (err) {}
+        } catch (err) {
+          console.warn(`Model ${model} failed: ${err.message}`);
+        }
       }
     }
 
-    // ৩. বিকল্প ব্যাকআপ
+    // ৩. শেষ ব্যাকআপ
     if (!replyText) {
       try {
-        const p = encodeURIComponent("Answer in sweet, factual Bengali as a cat: " + message);
+        const p = encodeURIComponent("Answer factually in sweet Bengali as a cat: " + message);
         const fb = await fetch(`https://text.pollinations.ai/${p}`);
         if (fb.ok) replyText = await fb.text();
       } catch (e) {}
     }
 
     if (!replyText) {
-      replyText = "মিয়াওঁ! আমি তোমার প্রশ্নটি শুনতে পেয়েছি। আরেকবার বলবে কি?";
+      replyText = "মিয়াওঁ! আমি তোমার প্রশ্নটি শুনতে পেয়েছি। একটু পর আবার চেষ্টা করো!";
     }
 
-    // অপ্রয়োজনীয় চিহ্ন ও চাইনিজ অক্ষর বাদ দেওয়া
     replyText = replyText.replace(/[*#_~`喵]/g, "").trim();
 
     res.json({ reply: replyText });
 
   } catch (error) {
-    console.error("Chat Error:", error);
+    console.error("Chat Server Error:", error);
     res.json({ reply: "মিয়াওঁ! একটু সমস্যা হয়েছে, আবার বলো তো!" });
   }
 });
