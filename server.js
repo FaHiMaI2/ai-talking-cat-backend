@@ -4,83 +4,90 @@ const { GoogleGenAI } = require("@google/genai");
 
 const app = express();
 
+// সকল অরিজিন সাপোর্ট করার জন্য CORS সক্রিয় করা হলো
 app.use(cors());
 app.use(express.json());
 
-// API Key ট্রিম করা (যাতে কোনো অনাকাঙ্ক্ষিত স্পেস বা ফাঁকা জায়গা না থাকে)
+// API Key সেটআপ
 const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : "";
-const ai = new GoogleGenAI({ apiKey: apiKey });
+let ai = null;
+if (apiKey) {
+  ai = new GoogleGenAI({ apiKey: apiKey });
+}
 
-// রুট পাথ
+// সার্ভার স্ট্যাটাস চেক রুট
 app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "Cat backend running" });
+  res.json({ 
+    status: "ok", 
+    message: "Cat backend running smoothly",
+    hasApiKey: !!apiKey 
+  });
 });
 
-// চ্যাট রাউট
+// চ্যাট রুট
 app.post(["/chat", "/api/chat"], async (req, res) => {
   try {
     const message = req.body.message;
 
     if (!message) {
-      return res.status(400).json({ error: "Message is required" });
+      return res.status(400).json({ error: "মেসেজ লিখুন" });
     }
 
-    if (!apiKey) {
+    if (!apiKey || !ai) {
       return res.status(500).json({
-        error: "Server Error: GEMINI_API_KEY is not configured",
+        error: "GEMINI_API_KEY পাওয়া যায়নি! অনুগ্রহ করে Render-এর Environment-এ কি যোগ করুন।",
       });
     }
 
-    // Google-এর বর্তমান সক্রিয় এবং ব্যাকআপ মডেল তালিকা
+    // গুগলের সবচেয়ে দ্রুত এবং কার্যকর মডেলসমূহ
     const modelsToTry = [
-      "gemini-flash-latest",
-      "gemini-3.5-flash",
       "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
-      "gemini-2.0-flash"
+      "gemini-2.0-flash",
+      "gemini-1.5-flash"
     ];
 
     let replyText = null;
-    let lastErrorMessage = "";
+    let lastError = null;
 
     for (const model of modelsToTry) {
       try {
-        console.log(`Trying model: ${model}`);
+        console.log(`Testing Gemini model: ${model}`);
         const response = await ai.models.generateContent({
           model: model,
           contents: message,
           config: {
             systemInstruction:
-              "You are a cute, friendly talking cat. Reply in a playful, charming, and loving cat persona with meows and emojis.",
+              "You are a cute, intelligent talking cat named Talking Cat. Always reply in clear Bengali with a sweet, friendly tone, cat persona, meows, and relevant emojis. Keep answers concise, factual, and helpful.",
           },
         });
 
         if (response && response.text) {
           replyText = response.text;
-          console.log(`Success with model: ${model}`);
-          break; // সফল হলে লুপ থামিয়ে দেবে
+          console.log(`Success with: ${model}`);
+          break;
         }
       } catch (err) {
-        console.warn(`Model ${model} failed: ${err.message}`);
-        lastErrorMessage = err.message;
+        console.warn(`Model ${model} issue: ${err.message}`);
+        lastError = err;
       }
     }
 
     if (!replyText) {
-      throw new Error(lastErrorMessage || "All models failed");
+      throw new Error(lastError ? lastError.message : "কোনো মডেল থেকে উত্তর আসেনি");
     }
 
     res.json({
       reply: replyText,
     });
   } catch (error) {
-    console.error("Chat error:", error);
-    // সঠিক এরর মেসেজটি অ্যাপে পাঠানো হবে
-    res.status(500).json({ error: error.message || "Couldn't reply" });
+    console.error("Chat Server Error:", error.message);
+    res.status(500).json({ 
+      error: error.message || "সার্ভারে কোনো সমস্যা হয়েছে" 
+    });
   }
 });
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Cat Server running on port ${PORT}`);
 });
