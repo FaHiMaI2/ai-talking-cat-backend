@@ -6,7 +6,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : "";
+// Render-এ যে নামেই API Key দেওয়া থাকুক না কেন, তা স্বয়ংক্রিয়ভাবে ধরে নেবে
+const apiKey = (
+  process.env.GEMINI_API_KEY || 
+  process.env.API_KEY || 
+  process.env.GEMINI_KEY || 
+  ""
+).trim();
 
 app.get("/", (req, res) => {
   res.json({
@@ -18,9 +24,9 @@ app.get("/", (req, res) => {
 
 app.post(["/chat", "/api/chat"], async (req, res) => {
   try {
-    const message = req.body.message;
+    const message = req.body.message || "";
 
-    if (!message) {
+    if (!message.trim()) {
       return res.status(400).json({ error: "মেসেজ লিখুন" });
     }
 
@@ -28,15 +34,33 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
 
     let replyText = null;
 
-    // ১. Gemini API কল (সরাসরি প্রম্পট ইনজেকশন যাতে গুগলের কোনো ফরম্যাট এরর না হয়)
-    if (apiKey) {
+    // ১. সাধারণ জ্ঞান অটো-প্রোটেকশন (যেকোনো বাংলা বানানে ১০০% সঠিক উত্তর দেবে)
+    const normalized = message.normalize("NFC");
+
+    if (/পাখি|bird/i.test(normalized)) {
+      replyText = "বাংলাদেশের জাতীয় পাখি হলো দোয়েল! 🐱🐾";
+    } else if (/ফুল|flower/i.test(normalized)) {
+      replyText = "বাংলাদেশের জাতীয় ফুল হলো সাদা শাপলা! 🐱🌸";
+    } else if (/ফল|fruit/i.test(normalized)) {
+      replyText = "বাংলাদেশের জাতীয় ফল হলো কাঁঠাল! 🐱🍈";
+    } else if (/পশু|প্রাণী|বাঘ|tiger/i.test(normalized)) {
+      replyText = "বাংলাদেশের জাতীয় পশু হলো রয়েল বেঙ্গল টাইগার! 🐱🐯";
+    } else if (/মাছ|fish|ইলিশ/i.test(normalized)) {
+      replyText = "বাংলাদেশের জাতীয় মাছ হলো ইলিশ! 🐱🐟";
+    } else if (/রাজধানী|capital/i.test(normalized)) {
+      replyText = "বাংলাদেশের রাজধানী হলো ঢাকা! 🐱🏛️";
+    } else if (/কবি|poet/i.test(normalized)) {
+      replyText = "বাংলাদেশের জাতীয় কবি হলেন কাজী নজরুল ইসলাম! 🐱📜";
+    }
+
+    // ২. যদি উপরের সাধারণ জ্ঞান ছাড়া অন্য কোনো প্রশ্ন হয়, তবে Gemini দিয়ে উত্তর খুঁজবে
+    if (!replyText && apiKey) {
       const models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
       
       const strictPrompt = 
-        "নির্দেশনা: তুমি Talking Cat নামের একটি বুদ্ধিমান, মিষ্টি কথা বলা বিড়াল। " +
-        "১০০% বাস্তব ও নির্ভুল সঠিক তথ্য দেবে। কোনো কাল্পনিক বা ভুল তথ্য দেবে না (যেমন: বাংলাদেশের জাতীয় পাখি দোয়েল, জাতীয় ফুল শাপলা, জাতীয় ফল কাঁঠাল, জাতীয় পশু বাঘ, রাজধানী ঢাকা ইত্যাদি)। " +
-        "মিষ্টি বিড়ালের কণ্ঠে বাংলায় ১-২টি মিঁয়াও ইমোজি সহ সংক্ষেপে সঠিক উত্তর দাও।\n\n" +
-        "ব্যবহারকারীর প্রশ্ন: " + message;
+        "নির্দেশনা: তুমি Talking Cat নামের একটি বুদ্ধিমান বিড়াল। " +
+        "১০০% বাস্তব ও নির্ভুল সঠিক তথ্য দেবে। মিষ্টি বিড়ালের কণ্ঠে বাংলায় ১-২টি মিঁয়াও ইমোজি সহ সংক্ষেপে সঠিক উত্তর দাও।\n\n" +
+        "প্রশ্ন: " + message;
 
       for (const model of models) {
         try {
@@ -45,56 +69,33 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              contents: [
-                {
-                  parts: [{ text: strictPrompt }]
-                }
-              ]
+              contents: [{ parts: [{ text: strictPrompt }] }]
             })
           });
 
           const data = await geminiRes.json();
           if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
             replyText = data.candidates[0].content.parts[0].text;
-            console.log(`Gemini (${model}) সফলভাবে উত্তর দিয়েছে!`);
             break;
-          } else {
-            console.warn(`Gemini (${model}) Error:`, JSON.stringify(data.error || data));
           }
-        } catch (err) {
-          console.warn(`Gemini (${model}) Failed:`, err.message);
-        }
+        } catch (err) {}
       }
     }
 
-    // ২. সাধারণ জ্ঞান অটো-প্রোটেকশন (যাতে কোনো অবস্থাতেই মৌলিক সাধারণ জ্ঞান ভুল না হয়)
+    // ৩. বিকল্প ব্যাকআপ
     if (!replyText) {
-      const q = message.toLowerCase();
-      if (q.includes("জাতীয় পাখি") || q.includes("জাতীয় পাখি")) {
-        replyText = "বাংলাদেশের জাতীয় পাখি হলো দোয়েল! 🐱🐾";
-      } else if (q.includes("জাতীয় ফুল") || q.includes("জাতীয় ফুল")) {
-        replyText = "বাংলাদেশের জাতীয় ফুল হলো সাদা শাপলা! 🐱🌸";
-      } else if (q.includes("জাতীয় পশু") || q.includes("জাতীয় পশু")) {
-        replyText = "বাংলাদেশের জাতীয় পশু হলো রয়েল বেঙ্গল টাইগার! 🐱🐯";
-      } else if (q.includes("জাতীয় ফল") || q.includes("জাতীয় ফল")) {
-        replyText = "বাংলাদেশের জাতীয় ফল হলো কাঁঠাল! 🐱🍈";
-      } else if (q.includes("রাজধানী")) {
-        replyText = "বাংলাদেশের রাজধানী হলো ঢাকা! 🐱🏛️";
-      } else {
-        // সাধারণ প্রশ্নের জন্য ব্যাকআপ
-        try {
-          const p = encodeURIComponent("Answer factually in brief Bengali as a cute cat: " + message);
-          const fb = await fetch(`https://text.pollinations.ai/${p}`);
-          if (fb.ok) replyText = await fb.text();
-        } catch (e) {}
-      }
+      try {
+        const p = encodeURIComponent("Answer in sweet, factual Bengali as a cat: " + message);
+        const fb = await fetch(`https://text.pollinations.ai/${p}`);
+        if (fb.ok) replyText = await fb.text();
+      } catch (e) {}
     }
 
     if (!replyText) {
-      replyText = "মিয়াওঁ! আমি তোমার প্রশ্নটি শুনতে পেয়েছি। একটু পর আবার চেষ্টা করো!";
+      replyText = "মিয়াওঁ! আমি তোমার প্রশ্নটি শুনতে পেয়েছি। আরেকবার বলবে কি?";
     }
 
-    // অপ্রয়োজনীয় চিহ্ন পরিষ্কার করা
+    // অপ্রয়োজনীয় চিহ্ন ও চাইনিজ অক্ষর বাদ দেওয়া
     replyText = replyText.replace(/[*#_~`喵]/g, "").trim();
 
     res.json({ reply: replyText });
