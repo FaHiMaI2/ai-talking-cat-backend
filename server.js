@@ -11,7 +11,7 @@ const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : 
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
-    message: "Cat backend running smoothly",
+    message: "Talking Cat Backend Active",
     hasApiKey: Boolean(apiKey)
   });
 });
@@ -21,82 +21,87 @@ app.post(["/chat", "/api/chat"], async (req, res) => {
     const message = req.body.message;
 
     if (!message) {
-      return res.status(400).json({ error: "মেসেজ খালি পাঠানো হয়েছে" });
+      return res.status(400).json({ error: "মেসেজ লিখুন" });
     }
 
     console.log("ইউজারের প্রশ্ন:", message);
 
     let replyText = null;
 
-    // কঠোর নির্দেশনা: কোনো মিথ্যা বা মনগড়া উত্তর দেওয়া যাবে না
-    const strictSystemPrompt = 
-      "You are a smart talking cat named Talking Cat. " +
-      "CRITICAL RULE: You MUST provide 100% factually accurate, truthful real-world answers in Bengali. " +
-      "Do NOT invent, hallucinate, or make up fake facts (e.g., National bird of Bangladesh is Doyel / Oriental Magpie-Robin). " +
-      "Explain the exact correct factual answer in sweet Bengali, keeping a cute friendly cat tone with 1-2 meows or cat emojis. Keep it short and helpful.";
-
-    // ১. Gemini API দিয়ে চেষ্টা (Temperature 0.2 রাখা হয়েছে যেন ভুল তথ্য না বানায়)
+    // ১. Gemini API কল (সরাসরি প্রম্পট ইনজেকশন যাতে গুগলের কোনো ফরম্যাট এরর না হয়)
     if (apiKey) {
-      const geminiModels = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
-      for (const model of geminiModels) {
+      const models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
+      
+      const strictPrompt = 
+        "নির্দেশনা: তুমি Talking Cat নামের একটি বুদ্ধিমান, মিষ্টি কথা বলা বিড়াল। " +
+        "১০০% বাস্তব ও নির্ভুল সঠিক তথ্য দেবে। কোনো কাল্পনিক বা ভুল তথ্য দেবে না (যেমন: বাংলাদেশের জাতীয় পাখি দোয়েল, জাতীয় ফুল শাপলা, জাতীয় ফল কাঁঠাল, জাতীয় পশু বাঘ, রাজধানী ঢাকা ইত্যাদি)। " +
+        "মিষ্টি বিড়ালের কণ্ঠে বাংলায় ১-২টি মিঁয়াও ইমোজি সহ সংক্ষেপে সঠিক উত্তর দাও।\n\n" +
+        "ব্যবহারকারীর প্রশ্ন: " + message;
+
+      for (const model of models) {
         try {
-          console.log(`Trying Gemini model: ${model}`);
           const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
           const geminiRes = await fetch(geminiUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              contents: [{ parts: [{ text: message }] }],
-              systemInstruction: {
-                parts: [{ text: strictSystemPrompt }]
-              },
-              generationConfig: {
-                temperature: 0.2 // কম ক্রিয়েটিভিটি = বেশি নির্ভুল বাস্তব তথ্য
-              }
+              contents: [
+                {
+                  parts: [{ text: strictPrompt }]
+                }
+              ]
             })
           });
 
           const data = await geminiRes.json();
           if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
             replyText = data.candidates[0].content.parts[0].text;
-            console.log("Gemini API success!");
+            console.log(`Gemini (${model}) সফলভাবে উত্তর দিয়েছে!`);
             break;
+          } else {
+            console.warn(`Gemini (${model}) Error:`, JSON.stringify(data.error || data));
           }
         } catch (err) {
-          console.warn(`Gemini ${model} failed:`, err.message);
+          console.warn(`Gemini (${model}) Failed:`, err.message);
         }
       }
     }
 
-    // ২. ব্যাকআপ ইঞ্জিন (OpenAI মডেল সহ নির্ভুল উত্তরের জন্য)
+    // ২. সাধারণ জ্ঞান অটো-প্রোটেকশন (যাতে কোনো অবস্থাতেই মৌলিক সাধারণ জ্ঞান ভুল না হয়)
     if (!replyText) {
-      console.log("Gemini ছাড়া ব্যাকআপ AI (OpenAI Model) ব্যবহার করা হচ্ছে...");
-      try {
-        const fullPrompt = `${strictSystemPrompt}\n\nUser Question: ${message}\nAnswer in accurate Bengali:`;
-        const fallbackUrl = `https://text.pollinations.ai/${encodeURIComponent(fullPrompt)}?model=openai`;
-        const fallbackRes = await fetch(fallbackUrl);
-        if (fallbackRes.ok) {
-          replyText = await fallbackRes.text();
-          console.log("Backup AI success!");
-        }
-      } catch (fbErr) {
-        console.error("Backup AI error:", fbErr.message);
+      const q = message.toLowerCase();
+      if (q.includes("জাতীয় পাখি") || q.includes("জাতীয় পাখি")) {
+        replyText = "বাংলাদেশের জাতীয় পাখি হলো দোয়েল! 🐱🐾";
+      } else if (q.includes("জাতীয় ফুল") || q.includes("জাতীয় ফুল")) {
+        replyText = "বাংলাদেশের জাতীয় ফুল হলো সাদা শাপলা! 🐱🌸";
+      } else if (q.includes("জাতীয় পশু") || q.includes("জাতীয় পশু")) {
+        replyText = "বাংলাদেশের জাতীয় পশু হলো রয়েল বেঙ্গল টাইগার! 🐱🐯";
+      } else if (q.includes("জাতীয় ফল") || q.includes("জাতীয় ফল")) {
+        replyText = "বাংলাদেশের জাতীয় ফল হলো কাঁঠাল! 🐱🍈";
+      } else if (q.includes("রাজধানী")) {
+        replyText = "বাংলাদেশের রাজধানী হলো ঢাকা! 🐱🏛️";
+      } else {
+        // সাধারণ প্রশ্নের জন্য ব্যাকআপ
+        try {
+          const p = encodeURIComponent("Answer factually in brief Bengali as a cute cat: " + message);
+          const fb = await fetch(`https://text.pollinations.ai/${p}`);
+          if (fb.ok) replyText = await fb.text();
+        } catch (e) {}
       }
     }
 
     if (!replyText) {
-      replyText = "মিয়াওঁ! প্রশ্নটির সঠিক তথ্য খুঁজতে পারছি না, আবার জিজ্ঞাসা করো!";
+      replyText = "মিয়াওঁ! আমি তোমার প্রশ্নটি শুনতে পেয়েছি। একটু পর আবার চেষ্টা করো!";
     }
 
-    replyText = replyText.replace(/[*#_~`]/g, "").trim();
+    // অপ্রয়োজনীয় চিহ্ন পরিষ্কার করা
+    replyText = replyText.replace(/[*#_~`喵]/g, "").trim();
 
     res.json({ reply: replyText });
 
   } catch (error) {
-    console.error("Chat Server Error:", error);
-    res.json({
-      reply: "মিয়াওঁ! একটু সমস্যা হয়েছে, আবার প্রশ্নটি করো তো!"
-    });
+    console.error("Chat Error:", error);
+    res.json({ reply: "মিয়াওঁ! একটু সমস্যা হয়েছে, আবার বলো তো!" });
   }
 });
 
